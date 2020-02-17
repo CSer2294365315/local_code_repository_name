@@ -16,24 +16,19 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.streaming.dstream.{DStream, InputDStream}
 import org.apache.spark.streaming.{Seconds, StreamingContext}
 import redis.clients.jedis.Jedis
+
+
 import org.apache.phoenix.spark._
 
 object DauApp {
-//  pv  uv dau
-//  //page visit   页面访问
-//  user visit  用户访问    日  周  月 季度 年
-
-  // daily active user   每日活跃用户   user 注册用户  ip地址  mid 设备id
-
 
   def main(args: Array[String]): Unit = {
 
-        val sparkConf: SparkConf = new SparkConf().setAppName("dau_app").setMaster("local[*]")
+    val sparkConf: SparkConf = new SparkConf().setAppName("dau_app").setMaster("local[*]")
+    val ssc = new StreamingContext(sparkConf, Seconds(5))
 
-        val ssc = new StreamingContext(sparkConf,Seconds(5))
-
-        val recordDstream: InputDStream[ConsumerRecord[String, String]] = MyKafkaUtil.getKafkaStream(GmallConstant.KAFKA_TOPIC_STARTUP,ssc)
-         //recordDstream.map(_.value()).print()
+    val recordDstream: InputDStream[ConsumerRecord[String, String]] = MyKafkaUtil.getKafkaStream(GmallConstant.KAFKA_TOPIC_STARTUP, ssc)
+    //recordDstream.map(_.value()).print()
     // 1 进行一个格式转换 补充时间字段
     val startUpLogDstream: DStream[StartupLog] = recordDstream.map { record =>
       val jsonString: String = record.value()
@@ -53,30 +48,30 @@ object DauApp {
     //2  去重   保留每个mid当日的第一条   其他的启动日志过滤掉
 
     //  然后再利用清单进行过滤筛选 把清单中已有的用户的新日志过滤掉
-/* 方案A     连接redis次数太多  可以进一步优化
- val filteredDstream: DStream[StartupLog] = startUpLogDstream.filter { startuplog =>
-      val jedis: Jedis = RedisUtil.getJedisClient
-      val dauKey = "dau:" + startuplog.logDate
-      val flag = !jedis.sismember(dauKey, startuplog.mid)
-      jedis.close()
-      flag
-    }*/
+    /* 方案A     连接redis次数太多  可以进一步优化
+     val filteredDstream: DStream[StartupLog] = startUpLogDstream.filter { startuplog =>
+          val jedis: Jedis = RedisUtil.getJedisClient
+          val dauKey = "dau:" + startuplog.logDate
+          val flag = !jedis.sismember(dauKey, startuplog.mid)
+          jedis.close()
+          flag
+        }*/
     // 优化：  利用driver查询出完整清单，然后利用广播变量发送给各个executor
     // 各个ex  利用广播变量中的清单  检查自己的数据是否需要过滤 在清单中的一律清洗掉
     //1  查 driver
-  /*  方案B 错误代码  会造成driver只执行了一次  不会周期性执行
-    val jedis: Jedis = RedisUtil.getJedisClient
-    val today: String = new SimpleDateFormat("yyyy-MM-dd").format(new Date())
-    val dauKey="dau:"+today
-    val midSet: util.Set[String] = jedis.smembers(dauKey)
-    jedis.close()
-  // 2  发
-    val midBC: Broadcast[util.Set[String]] = ssc.sparkContext.broadcast(midSet)
+    /*  方案B 错误代码  会造成driver只执行了一次  不会周期性执行
+      val jedis: Jedis = RedisUtil.getJedisClient
+      val today: String = new SimpleDateFormat("yyyy-MM-dd").format(new Date())
+      val dauKey="dau:"+today
+      val midSet: util.Set[String] = jedis.smembers(dauKey)
+      jedis.close()
+    // 2  发
+      val midBC: Broadcast[util.Set[String]] = ssc.sparkContext.broadcast(midSet)
 
-    startUpLogDstream.filter{startuplog=>  //3 ex 收   筛查
-      val midSet: util.Set[String] = midBC.value
-      !midSet.contains(startuplog.mid)
-    }*/
+      startUpLogDstream.filter{startuplog=>  //3 ex 收   筛查
+        val midSet: util.Set[String] = midBC.value
+        !midSet.contains(startuplog.mid)
+      }*/
 
     //方案C
     //让driver 每5秒执行一次
@@ -103,7 +98,7 @@ object DauApp {
     }
 
     //  自检内部  分组去重 ： 0 转换成kv  1   先按mid进行分组   2 组内排序 按时间排序  3  取 top1
-    val groupbyMidDstream: DStream[(String, Iterable[StartupLog])] = filteredDstream.map(startuplog=>(startuplog.mid,startuplog)).groupByKey()
+    val groupbyMidDstream: DStream[(String, Iterable[StartupLog])] = filteredDstream.map(startuplog => (startuplog.mid, startuplog)).groupByKey()
 
     val realFilteredDstream: DStream[StartupLog] = groupbyMidDstream.map { case (mid, startuplogItr) =>
       val startuplogList: List[StartupLog] = startuplogItr.toList.sortWith { (startuplog1, startuplog2) =>
@@ -132,22 +127,19 @@ object DauApp {
 
       }
     }
-      realFilteredDstream.foreachRDD{rdd=>
-        rdd.saveToPhoenix("GMALL0826_DAU",
-          Seq("MID", "UID", "APPID", "AREA", "OS", "CH", "TYPE", "VS", "LOGDATE", "LOGHOUR", "TS")
-        ,new Configuration,Some("hadoop1,hadoop2,hadoop3:2181"))
+    realFilteredDstream.foreachRDD { rdd =>
+      rdd.saveToPhoenix("GMALL0826_DAU",
+        Seq("MID", "UID", "APPID", "AREA", "OS", "CH", "TYPE", "VS", "LOGDATE", "LOGHOUR", "TS")
+        , new Configuration, Some("hadoop1,hadoop2,hadoop3:2181"))
 
-      }
-
-
+    }
 
 
-         ssc.start()
-         ssc.awaitTermination()
+    ssc.start()
+    ssc.awaitTermination()
 
 
   }
-
 
 
 }

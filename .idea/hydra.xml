@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="HydraSettings">
+    <option name="hydraStorePath" value="C:\Users\cui\Desktop\飞秋存储\尚硅谷大数据技术之Spark\4.视频\gmall0826-parent\.hydra\idea" />
+    <option name="noOfCores" value="8" />
+    <option name="projectRoot" value="C:\Users\cui\Desktop\飞秋存储\尚硅谷大数据技术之Spark\4.视频\gmall0826-parent" />
+    <option name="sourcePartitioner" value="auto" />
+  </component>
+</project>
