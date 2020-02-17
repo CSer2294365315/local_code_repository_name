@@ -34,6 +34,7 @@ public class PublisherController {
         totalList.add(newMidMap);
 
 
+
         Map orderAmountMap=new HashMap();
         orderAmountMap.put("id","order_amount");
         orderAmountMap.put("name","新增交易额");
